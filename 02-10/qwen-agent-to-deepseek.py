@@ -1,8 +1,18 @@
-import os
-import json
-from langchain_community.tools.tavily_search import TavilySearchResults
-import broadscope_bailian
+# from langchain_community.tools.tavily_search import TavilySearchResults
+# import broadscope_bailian
 import datetime
+import json
+import os
+
+from dotenv import load_dotenv
+from langchain_tavily import TavilySearch
+from openai import OpenAI
+
+load_dotenv()
+
+client = OpenAI(
+    api_key=os.getenv("DEEPSEEK_API_KEY"), base_url=os.getenv("DEEPSEEK_BASE_URL")
+)
 
 def llm(query,history=[],user_stop_words=[]):    # 调用api_server
     access_key_id=os.environ.get("ACCESS_KEY_ID")
@@ -16,23 +26,31 @@ def llm(query,history=[],user_stop_words=[]):    # 调用api_server
             messages.append({'role':'user','content':hist[0]})
             messages.append({'role':'assistant','content':hist[1]})
         messages.append({'role':'user','content':query})
-        client=broadscope_bailian.AccessTokenClient(access_key_id=access_key_id, access_key_secret=access_key_secret,
-                                                        agent_key=agent_key)
-        resp=broadscope_bailian.Completions(token=client.get_token()).create(
-            app_id=app_id,
+        # client=broadscope_bailian.AccessTokenClient(access_key_id=access_key_id, access_key_secret=access_key_secret,
+        #                                                 agent_key=agent_key)
+        # resp=broadscope_bailian.Completions(token=client.get_token()).create(
+        #     app_id=app_id,
+        #     messages=messages,
+        #     result_format="message",
+        #     stop=user_stop_words,
+        # )
+        resp = client.chat.completions.create(
+            model="deepseek-chat",
             messages=messages,
-            result_format="message",
+            stream=False,
             stop=user_stop_words,
         )
         # print(resp)
-        content=resp.get("Data", {}).get("Choices", [])[0].get("Message", {}).get("Content")
+        # content=resp.get("Data", {}).get("Choices", [])[0].get("Message", {}).get("Content")
+        content = resp.choices[0].message.content
         return content
     except Exception as e:
         return str(e)
 
 # travily搜索引擎
 os.environ['TAVILY_API_KEY']='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'    # travily搜索引擎api key
-tavily=TavilySearchResults(max_results=5)
+# tavily=TavilySearchResults(max_results=5)
+tavily = TavilySearch(search_depth="general", max_results=5)
 tavily.description='这是一个类似谷歌和百度的搜索引擎，搜索知识、天气、股票、电影、小说、百科等都是支持的哦，如果你不确定就应该搜索一下，谢谢！'
 
 # 工具列表
@@ -43,7 +61,11 @@ tool_descs=[] # 拼接工具详情
 for t in tools:
     args_desc=[]
     for name,info in t.args.items():
-        args_desc.append({'name':name,'description':info['description'] if 'description' in info else '','type':info['type']})
+        args_desc.append({
+            'name': name,
+            'description': info['description'] if 'description' in info else '',
+            'type': info['type'] if 'type' in info else ''
+        })
     args_desc=json.dumps(args_desc,ensure_ascii=False)
     tool_descs.append('%s: %s,args: %s'%(t.name,t.description,args_desc))
 tool_descs='\n'.join(tool_descs)
@@ -139,5 +161,12 @@ def agent_execute_with_retry(query,chat_history=[],retry_times=3):
 my_history=[]
 while True:
     query=input('query:')
-    success,result,my_history=agent_execute_with_retry(query,chat_history=my_history)
-    my_history=my_history[-10:]
+    if query:
+        if query == 'exit':
+            print("已退出")
+            break
+        else:
+            success,result,my_history=agent_execute_with_retry(query,chat_history=my_history)
+            my_history=my_history[-10:]
+    else:
+        print("请输入要询问的问题")
